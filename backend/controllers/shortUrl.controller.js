@@ -8,23 +8,24 @@ const generateShortCode = () => crypto.randomBytes(3).toString("hex");
 export const createShortUrl = (req, res) => {
   const { url, validity = 30, shortcode } = req.body;
 
-  if (!url) {
-    req.logError("Missing URL in request body");
+  if (!url || typeof url !== "string") {
+    req.logError("Invalid or missing URL in request body");
     return res.status(400).json({ error: "URL is required" });
   }
 
   let code = shortcode || generateShortCode();
 
   if (urls.has(code)) {
-    if (!shortcode) code = generateShortCode();
-    else {
-      req.log("error", "controller", "Shortcode already exists");
+    if (!shortcode) {
+      code = generateShortCode();
+    } else {
+      req.log("error", "controller", `Shortcode '${code}' already exists`);
       return res.status(409).json({ error: "Shortcode already taken" });
     }
   }
 
   const createdAt = new Date();
-  const expiryDate = new Date(createdAt.getTime() + validity * 60000);
+  const expiryDate = new Date(createdAt.getTime() + validity * 60_000);
 
   urls.set(code, {
     url,
@@ -33,12 +34,12 @@ export const createShortUrl = (req, res) => {
     shortcode: code,
   });
 
-  res.status(201).json({
+  req.logInfo(`Shortened URL: '${url}' → /shorturls/${code}`);
+
+  return res.status(201).json({
     shortlink: `http://localhost:5000/shorturls/${code}`,
     expiry: expiryDate.toISOString(),
   });
-
-  req.logInfo(`Created shortcode ${code} for ${url}`);
 };
 
 export const redirectShortUrl = (req, res) => {
@@ -46,13 +47,13 @@ export const redirectShortUrl = (req, res) => {
   const data = urls.get(shortcode);
 
   if (!data) {
-    req.logError(`Shortcode ${shortcode} not found`);
+    req.logError(`Redirection failed. Shortcode '${shortcode}' not found`);
     return res.status(404).json({ error: "Shortcode not found" });
   }
 
   const now = new Date();
   if (now > data.expiry) {
-    req.log("warn", "controller", `Shortcode ${shortcode} expired`);
+    req.log("warn", "controller", `Attempted access to expired shortcode '${shortcode}'`);
     return res.status(410).json({ error: "Shortcode expired" });
   }
 
@@ -61,10 +62,14 @@ export const redirectShortUrl = (req, res) => {
     source: req.headers["user-agent"] || "unknown",
   };
 
-  if (!clickStats.has(shortcode)) clickStats.set(shortcode, []);
-  clickStats.get(shortcode).push(click);
+  if (!clickStats.has(shortcode)) {
+    clickStats.set(shortcode, []);
+  }
 
-  res.redirect(data.url);
+  clickStats.get(shortcode).push(click);
+  req.logInfo(`Redirected to '${data.url}' from shortcode '${shortcode}'`);
+
+  return res.redirect(data.url);
 };
 
 export const getShortUrlStats = (req, res) => {
@@ -72,19 +77,19 @@ export const getShortUrlStats = (req, res) => {
   const data = urls.get(shortcode);
 
   if (!data) {
-    req.logError(`Stats requested for non-existent shortcode ${shortcode}`);
+    req.logError(`Stats requested for unknown shortcode '${shortcode}'`);
     return res.status(404).json({ error: "Shortcode not found" });
   }
 
   const clicks = clickStats.get(shortcode) || [];
 
-  res.json({
+  req.logInfo(`Stats returned for shortcode '${shortcode}'`);
+
+  return res.json({
     url: data.url,
-    createdAt: data.createdAt,
-    expiry: data.expiry,
+    createdAt: data.createdAt.toISOString(),
+    expiry: data.expiry.toISOString(),
     totalClicks: clicks.length,
     clickDetails: clicks,
   });
-
-  req.logInfo(`Stats fetched for shortcode ${shortcode}`);
 };
