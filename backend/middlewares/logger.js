@@ -3,18 +3,39 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const MAX_LENGTH = 48;
+let token_from_auth = null;
 
-const truncate = (str) => {
-  return str.length > MAX_LENGTH ? str.slice(0, MAX_LENGTH) : str;
+const getAuthToken = async () => {
+  if (token_from_auth) return token_from_auth;
+
+  try {
+    const response = await axios.post(process.env.AUTH_API, {
+      email: process.env.EMAIL,
+      name: process.env.NAME,
+      rollNo: process.env.ROLL_NO,
+      accessCode: process.env.ACCESS_CODE,
+      clientID: process.env.CLIENT_ID,
+      clientSecret: process.env.CLIENT_SECRET,
+    });
+
+    token_from_auth = response.data.token;
+    console.log("✅ Auth token fetched");
+    return token_from_auth;
+  } catch (err) {
+    console.error("❌ Failed to fetch token:", err.response?.data || err.message);
+    return null;
+  }
 };
 
+const MAX_LENGTH = 48;
+const truncate = (str) => (str.length > MAX_LENGTH ? str.slice(0, MAX_LENGTH) : str);
+
 const sendLog = async (stack, level, pkg, message) => {
-  const token = process.env.TOKEN?.trim();
+  const token = await getAuthToken();
   const logApi = process.env.LOG_API?.trim();
 
   if (!token || !logApi) {
-    console.error("❌ Missing LOG_API or TOKEN in .env");
+    console.error("❌ Missing LOG_API or TOKEN");
     return;
   }
 
@@ -34,9 +55,7 @@ const sendLog = async (stack, level, pkg, message) => {
 
     console.log("✅ Log created:", response.data.message);
   } catch (err) {
-    const status = err.response?.status;
-    const data = err.response?.data;
-    console.error("❌ Logging failed:", status, data || err.message);
+    console.error("❌ Logging failed:", err.response?.status, err.response?.data || err.message);
   }
 };
 
